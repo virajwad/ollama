@@ -18,6 +18,8 @@ func Execute(args []string) error {
 			return ollamarunner.Execute(args[1:])
 		case "--imagegen-engine":
 			return imagegen.Execute(args[1:])
+		case "--openvino-imagegen-engine":
+			return imagegen.ExecuteOpenVINO(args[1:])
 		case "--mlx-engine":
 			return mlxrunner.Execute(args[1:])
 		}

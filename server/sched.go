@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
 	"slices"
 	"sort"
@@ -453,7 +454,14 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 		} else {
 			modelName := req.model.ShortName
 			if slices.Contains(req.model.Config.Capabilities, "image") {
-				llama, err = imagegen.NewServer(modelName)
+				// Route to OpenVINO backend when OLLAMA_OPENVINO_SD3_MODEL_DIR is set,
+				// otherwise fall through to existing MLX backend (unchanged).
+				ovinoModelDir := os.Getenv("OLLAMA_OPENVINO_SD3_MODEL_DIR")
+				if ovinoModelDir != "" {
+					llama, err = imagegen.NewOpenVINOServer(ovinoModelDir)
+				} else {
+					llama, err = imagegen.NewServer(modelName)
+				}
 			} else {
 				llama, err = mlxrunner.NewClient(modelName)
 			}
