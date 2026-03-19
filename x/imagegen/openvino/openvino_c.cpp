@@ -1,3 +1,5 @@
+//go:build openvino
+
 #include "openvino_c.h"
 
 #include <openvino/genai/text2image/pipeline.hpp>

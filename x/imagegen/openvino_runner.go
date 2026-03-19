@@ -105,7 +105,7 @@ func (s *openvinoSubprocess) completionHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Serialize — the OpenVINO pipeline is not thread-safe
+	// Serialize - the OpenVINO pipeline is not thread-safe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

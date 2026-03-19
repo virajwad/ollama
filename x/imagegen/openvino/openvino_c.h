@@ -1,3 +1,5 @@
+//go:build openvino
+
 #ifndef OPENVINO_GENAI_C_H
 #define OPENVINO_GENAI_C_H
 
