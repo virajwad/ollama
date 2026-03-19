@@ -146,6 +146,12 @@ func (s *Server) scheduleRunner(ctx context.Context, name string, caps []model.C
 		return nil, nil, nil, fmt.Errorf("model %w", errRequired)
 	}
 
+	// When OLLAMA_OPENVINO_MODEL_DIR is set, bypass the registry and GGUF
+	// loading entirely. Create a synthetic model and route to OpenVINO.
+	if ovinoDir := os.Getenv("OLLAMA_OPENVINO_MODEL_DIR"); ovinoDir != "" {
+		return s.scheduleOpenVINORunner(ctx, name, ovinoDir, keepAlive)
+	}
+
 	model, err := GetModel(name)
 	if err != nil {
 		return nil, nil, nil, err
@@ -176,6 +182,36 @@ func (s *Server) scheduleRunner(ctx context.Context, name string, caps []model.C
 	}
 
 	return runner.llama, model, &opts, nil
+}
+
+// scheduleOpenVINORunner creates a synthetic model and routes to the OpenVINO
+// GenAI backend, bypassing the GGUF registry entirely.
+func (s *Server) scheduleOpenVINORunner(ctx context.Context, name string, modelDir string, keepAlive *api.Duration) (llm.LlamaServer, *Model, *api.Options, error) {
+	slog.Info("openvino: bypassing registry, using OpenVINO model", "name", name, "model_dir", modelDir)
+
+	// Create a synthetic Model with completion capability.
+	// ModelPath is left empty so Capabilities() reads from Config
+	// instead of trying to open it as a GGUF file.
+	m := &Model{
+		Name:      name,
+		ShortName: name,
+		Config: model.ConfigV2{
+			Capabilities: []string{"completion"},
+			ModelFamily:  "qwen3",
+		},
+		Template: template.DefaultTemplate,
+	}
+
+	opts := api.DefaultOptions()
+	runnerCh, errCh := s.sched.GetRunner(ctx, m, opts, keepAlive)
+	var runner *runnerRef
+	select {
+	case runner = <-runnerCh:
+	case err := <-errCh:
+		return nil, nil, nil, err
+	}
+
+	return runner.llama, m, &opts, nil
 }
 
 func signinURL() (string, error) {
