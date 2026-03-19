@@ -1,13 +1,10 @@
 package imagegen
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"image/png"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,12 +17,12 @@ import (
 	"github.com/ollama/ollama/x/imagegen/openvino"
 )
 
-// ExecuteOpenVINO is the entry point for the OpenVINO imagegen subprocess.
-// Invoked via: ollama runner --openvino-imagegen-engine --model <dir> --device <dev> --port <port>
+// ExecuteOpenVINO is the entry point for the OpenVINO LLM subprocess.
+// Invoked via: ollama runner --openvino-llm-engine --model <dir> --device <dev> --port <port>
 func ExecuteOpenVINO(args []string) error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: envconfig.LogLevel()})))
 
-	fs := flag.NewFlagSet("openvino-imagegen-runner", flag.ExitOnError)
+	fs := flag.NewFlagSet("openvino-llm-runner", flag.ExitOnError)
 	modelDir := fs.String("model", "", "path to OpenVINO IR model directory")
 	device := fs.String("device", "CPU", "OpenVINO device (CPU, GPU, NPU)")
 	port := fs.Int("port", 0, "port to listen on")
@@ -41,7 +38,7 @@ func ExecuteOpenVINO(args []string) error {
 		return fmt.Errorf("--port is required")
 	}
 
-	slog.Info("starting openvino imagegen runner", "model", *modelDir, "device", *device, "port", *port)
+	slog.Info("starting openvino llm runner", "model", *modelDir, "device", *device, "port", *port)
 
 	pipeline, err := openvino.NewPipeline(*modelDir, *device)
 	if err != nil {
@@ -49,9 +46,9 @@ func ExecuteOpenVINO(args []string) error {
 	}
 	defer pipeline.Close()
 
-	slog.Info("openvino pipeline loaded successfully")
+	slog.Info("openvino llm pipeline loaded successfully")
 
-	srv := &openvinoSubprocess{pipeline: pipeline}
+	srv := &openvinoLLMSubprocess{pipeline: pipeline}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.healthHandler)
@@ -67,14 +64,14 @@ func ExecuteOpenVINO(args []string) error {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		slog.Info("shutting down openvino runner")
+		slog.Info("shutting down openvino llm runner")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		httpServer.Shutdown(ctx)
 		close(done)
 	}()
 
-	slog.Info("openvino runner listening", "addr", httpServer.Addr)
+	slog.Info("openvino llm runner listening", "addr", httpServer.Addr)
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
@@ -83,17 +80,17 @@ func ExecuteOpenVINO(args []string) error {
 	return nil
 }
 
-type openvinoSubprocess struct {
+type openvinoLLMSubprocess struct {
 	pipeline *openvino.Pipeline
 	mu       sync.Mutex
 }
 
-func (s *openvinoSubprocess) healthHandler(w http.ResponseWriter, r *http.Request) {
+func (s *openvinoLLMSubprocess) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
 }
 
-func (s *openvinoSubprocess) completionHandler(w http.ResponseWriter, r *http.Request) {
+func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -109,21 +106,32 @@ func (s *openvinoSubprocess) completionHandler(w http.ResponseWriter, r *http.Re
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	width := req.Width
-	if width <= 0 {
-		width = 1024
+	maxTokens := int32(512)
+	temperature := float32(0.7)
+	topP := float32(0.9)
+	topK := int32(40)
+	repPenalty := float32(1.0)
+	doSample := true
+
+	if req.Options != nil {
+		if req.Options.NumPredict > 0 {
+			maxTokens = int32(req.Options.NumPredict)
+		}
+		if req.Options.Temperature > 0 {
+			temperature = float32(req.Options.Temperature)
+		}
+		if req.Options.TopP > 0 {
+			topP = float32(req.Options.TopP)
+		}
+		if req.Options.TopK > 0 {
+			topK = int32(req.Options.TopK)
+		}
 	}
-	height := req.Height
-	if height <= 0 {
-		height = 1024
-	}
-	steps := req.Steps
-	if steps <= 0 {
-		steps = 28 // SD3 default
-	}
-	seed := req.Seed
-	if seed <= 0 {
-		seed = time.Now().UnixNano()
+
+	// Temperature of 0 means greedy (no sampling)
+	if temperature == 0 {
+		doSample = false
+		temperature = 1.0
 	}
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
@@ -136,23 +144,27 @@ func (s *openvinoSubprocess) completionHandler(w http.ResponseWriter, r *http.Re
 
 	ctx := r.Context()
 	enc := json.NewEncoder(w)
+	tokenCount := 0
+	start := time.Now()
 
 	cfg := &openvino.GenerateConfig{
-		Prompt:        req.Prompt,
-		Width:         width,
-		Height:        height,
-		Steps:         int32(steps),
-		Seed:          seed,
-		GuidanceScale: 7.0, // SD3 default
+		Prompt:            req.Prompt,
+		MaxNewTokens:      maxTokens,
+		Temperature:       temperature,
+		TopP:              topP,
+		TopK:              topK,
+		RepetitionPenalty: repPenalty,
+		DoSample:          doSample,
 	}
 
-	progress := func(step, total int) {
-		enc.Encode(Response{Step: step, Total: total})
-		w.Write([]byte("\n"))
+	tokenFn := func(token string) bool {
+		tokenCount++
+		enc.Encode(Response{Content: token})
 		flusher.Flush()
+		return true
 	}
 
-	img, err := s.pipeline.Generate(ctx, cfg, progress)
+	err := s.pipeline.Generate(ctx, cfg, tokenFn)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -162,18 +174,11 @@ func (s *openvinoSubprocess) completionHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Encode to PNG then base64
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		slog.Error("png encode failed", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+	elapsed := time.Since(start)
 	enc.Encode(Response{
-		Image: base64.StdEncoding.EncodeToString(buf.Bytes()),
-		Done:  true,
+		Done:         true,
+		EvalCount:    tokenCount,
+		EvalDuration: int(elapsed.Milliseconds()),
 	})
-	w.Write([]byte("\n"))
 	flusher.Flush()
 }

@@ -6,66 +6,64 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef OV_WRAPPER_EXPORTS
+#  define OV_WRAPPER_API __declspec(dllexport)
+#elif defined(OV_WRAPPER_IMPORTS)
+#  define OV_WRAPPER_API __declspec(dllimport)
+#else
+#  define OV_WRAPPER_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Opaque handle to the Text2ImagePipeline */
-typedef struct ov_t2i_pipeline_impl* ov_t2i_pipeline_t;
+/* Opaque handle to the LLMPipeline */
+typedef struct ov_llm_pipeline_impl* ov_llm_pipeline_t;
 
-/* Configuration for image generation */
+/* Configuration for text generation */
 typedef struct {
     const char* prompt;
-    int32_t     width;
-    int32_t     height;
-    int32_t     num_inference_steps;
-    int64_t     seed;           /* -1 for random */
-    float       guidance_scale; /* SD3 default: 7.0 */
-} ov_t2i_config_t;
-
-/* Result from image generation */
-typedef struct {
-    uint8_t* pixels;   /* RGB row-major, caller must free with ov_t2i_free_pixels */
-    int32_t  width;
-    int32_t  height;
-    int32_t  channels; /* Always 3 (RGB) */
-} ov_t2i_result_t;
+    int32_t     max_new_tokens;
+    float       temperature;
+    float       top_p;
+    int32_t     top_k;
+    float       repetition_penalty;
+    bool        do_sample;
+} ov_llm_config_t;
 
 /*
- * Progress callback.
+ * Streaming token callback.
+ * Called for each generated token.
  * Return true to continue, false to cancel generation.
  */
-typedef bool (*ov_t2i_progress_fn)(int32_t step, int32_t total_steps, void* userdata);
+typedef bool (*ov_llm_token_fn)(const char* token, void* userdata);
 
 /*
- * Create a pipeline from a model directory (OpenVINO IR or HuggingFace optimum export).
+ * Create an LLM pipeline from a model directory (OpenVINO IR or optimum-intel export).
  * device: "CPU", "GPU", or "NPU"
- * Returns NULL on failure; call ov_t2i_last_error() for details.
+ * Returns NULL on failure; call ov_llm_last_error() for details.
  */
-ov_t2i_pipeline_t ov_t2i_create(const char* model_dir, const char* device);
+OV_WRAPPER_API ov_llm_pipeline_t ov_llm_create(const char* model_dir, const char* device);
 
 /* Destroy a pipeline and free all resources. */
-void ov_t2i_destroy(ov_t2i_pipeline_t pipeline);
+OV_WRAPPER_API void ov_llm_destroy(ov_llm_pipeline_t pipeline);
 
 /*
- * Generate an image. Blocks until complete or cancelled.
- * progress_fn may be NULL.
+ * Generate text from a prompt. Blocks until complete or cancelled.
+ * token_fn is called for each generated token (may be NULL for non-streaming).
  * Returns 0 on success, 1 on cancellation, -1 on error.
  */
-int ov_t2i_generate(ov_t2i_pipeline_t pipeline,
-                    const ov_t2i_config_t* config,
-                    ov_t2i_progress_fn progress_fn,
-                    void* userdata,
-                    ov_t2i_result_t* out_result);
-
-/* Free pixel data returned by ov_t2i_generate. */
-void ov_t2i_free_pixels(uint8_t* pixels);
+OV_WRAPPER_API int ov_llm_generate(ov_llm_pipeline_t pipeline,
+                    const ov_llm_config_t* config,
+                    ov_llm_token_fn token_fn,
+                    void* userdata);
 
 /* Get last error message (thread-local). */
-const char* ov_t2i_last_error(void);
+OV_WRAPPER_API const char* ov_llm_last_error(void);
 
 /* Check if OpenVINO runtime is available. */
-bool ov_t2i_is_available(void);
+OV_WRAPPER_API bool ov_llm_is_available(void);
 
 #ifdef __cplusplus
 }

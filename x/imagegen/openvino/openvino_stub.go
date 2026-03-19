@@ -6,20 +6,20 @@ package openvino
 import (
 	"context"
 	"fmt"
-	"image"
 )
 
 // Pipeline is a stub that always returns errors.
 type Pipeline struct{}
 
-// GenerateConfig holds parameters for image generation.
+// GenerateConfig holds parameters for text generation.
 type GenerateConfig struct {
-	Prompt        string
-	Width         int32
-	Height        int32
-	Steps         int32
-	Seed          int64
-	GuidanceScale float32
+	Prompt            string
+	MaxNewTokens      int32
+	Temperature       float32
+	TopP              float32
+	TopK              int32
+	RepetitionPenalty float32
+	DoSample          bool
 }
 
 // NewPipeline returns an error when OpenVINO is not compiled in.
@@ -31,8 +31,9 @@ func NewPipeline(_, _ string) (*Pipeline, error) {
 func (p *Pipeline) Close() {}
 
 // Generate returns an error when OpenVINO is not compiled in.
-func (p *Pipeline) Generate(_ context.Context, _ *GenerateConfig, _ func(int, int)) (image.Image, error) {
-	return nil, fmt.Errorf("openvino: not compiled in")
+// tokenFn receives each generated token; return false to stop.
+func (p *Pipeline) Generate(_ context.Context, _ *GenerateConfig, _ func(string) bool) error {
+	return fmt.Errorf("openvino: not compiled in")
 }
 
 // IsAvailable always returns false.

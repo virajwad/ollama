@@ -434,7 +434,13 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 
 	if llama == nil {
 		var err error
-		if !req.model.IsMLX() {
+		// When OLLAMA_OPENVINO_MODEL_DIR is set, route to OpenVINO GenAI LLM backend.
+		// This bypasses the normal GGUF/MLX loading path entirely.
+		ovinoModelDir := os.Getenv("OLLAMA_OPENVINO_MODEL_DIR")
+		if ovinoModelDir != "" {
+			slog.Info("using openvino llm backend", "model_dir", ovinoModelDir)
+			llama, err = imagegen.NewOpenVINOServer(ovinoModelDir)
+		} else if !req.model.IsMLX() {
 			f, loadErr := llm.LoadModel(req.model.ModelPath, 1024)
 			if loadErr != nil {
 				slog.Info("failed to load model metadata", "model", req.model.ModelPath, "error", loadErr)
@@ -454,14 +460,7 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 		} else {
 			modelName := req.model.ShortName
 			if slices.Contains(req.model.Config.Capabilities, "image") {
-				// Route to OpenVINO backend when OLLAMA_OPENVINO_SD3_MODEL_DIR is set,
-				// otherwise fall through to existing MLX backend (unchanged).
-				ovinoModelDir := os.Getenv("OLLAMA_OPENVINO_SD3_MODEL_DIR")
-				if ovinoModelDir != "" {
-					llama, err = imagegen.NewOpenVINOServer(ovinoModelDir)
-				} else {
-					llama, err = imagegen.NewServer(modelName)
-				}
+				llama, err = imagegen.NewServer(modelName)
 			} else {
 				llama, err = mlxrunner.NewClient(modelName)
 			}

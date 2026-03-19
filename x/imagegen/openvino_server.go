@@ -26,8 +26,7 @@ import (
 	"github.com/ollama/ollama/ml"
 )
 
-// OpenVINOServer wraps an OpenVINO runner subprocess to implement llm.LlamaServer.
-// It is a parallel path to the MLX-based Server and shares no MLX dependencies.
+// OpenVINOServer wraps an OpenVINO LLM runner subprocess to implement llm.LlamaServer.
 type OpenVINOServer struct {
 	mu          sync.Mutex
 	cmd         *exec.Cmd
@@ -41,11 +40,11 @@ type OpenVINOServer struct {
 	lastErrLock sync.Mutex
 }
 
-// NewOpenVINOServer creates a new OpenVINO image generation server.
+// NewOpenVINOServer creates a new OpenVINO LLM server.
 // modelDir is the local directory containing the exported OpenVINO IR model.
 func NewOpenVINOServer(modelDir string) (*OpenVINOServer, error) {
 	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
-		return nil, fmt.Errorf("openvino imagegen is supported on Windows and Linux, got %s", runtime.GOOS)
+		return nil, fmt.Errorf("openvino llm is supported on Windows and Linux, got %s", runtime.GOOS)
 	}
 
 	device := os.Getenv("OLLAMA_OPENVINO_DEVICE")
@@ -56,7 +55,7 @@ func NewOpenVINOServer(modelDir string) (*OpenVINOServer, error) {
 	return &OpenVINOServer{
 		modelDir: modelDir,
 		device:   device,
-		vramSize: 8 * 1024 * 1024 * 1024, // 8 GB estimate for SD3
+		vramSize: 8 * 1024 * 1024 * 1024, // 8 GB estimate
 		done:     make(chan error, 1),
 		client:   &http.Client{Timeout: 10 * time.Minute},
 	}, nil
@@ -90,8 +89,8 @@ func (s *OpenVINOServer) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.De
 		exe = eval
 	}
 
-	// Spawn: ollama runner --openvino-imagegen-engine --model <dir> --device <dev> --port <port>
-	cmd := exec.Command(exe, "runner", "--openvino-imagegen-engine",
+	// Spawn: ollama runner --openvino-llm-engine --model <dir> --device <dev> --port <port>
+	cmd := exec.Command(exe, "runner", "--openvino-llm-engine",
 		"--model", s.modelDir,
 		"--device", s.device,
 		"--port", strconv.Itoa(port),
@@ -146,7 +145,7 @@ func (s *OpenVINOServer) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.De
 		}
 	}()
 
-	slog.Info("starting openvino runner subprocess", "model", s.modelDir, "device", s.device, "port", s.port)
+	slog.Info("starting openvino llm runner subprocess", "model", s.modelDir, "device", s.device, "port", s.port)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start openvino runner: %w", err)
 	}
@@ -204,26 +203,27 @@ func (s *OpenVINOServer) WaitUntilRunning(ctx context.Context) error {
 			return errors.New("timeout waiting for openvino runner to start")
 		case <-ticker.C:
 			if err := s.Ping(ctx); err == nil {
-				slog.Info("openvino runner is ready", "port", s.port)
+				slog.Info("openvino llm runner is ready", "port", s.port)
 				return nil
 			}
 		}
 	}
 }
 
-// Completion sends an image generation request to the subprocess.
+// Completion sends a text generation request to the subprocess.
 func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionRequest, fn func(llm.CompletionResponse)) error {
-	seed := req.Seed
-	if seed == 0 {
-		seed = time.Now().UnixNano()
-	}
-
 	creq := Request{
 		Prompt: req.Prompt,
-		Width:  req.Width,
-		Height: req.Height,
-		Steps:  int(req.Steps),
-		Seed:   seed,
+	}
+
+	if req.Options != nil {
+		creq.Options = &RequestOptions{
+			NumPredict:  req.Options.NumPredict,
+			Temperature: float64(req.Options.Temperature),
+			TopP:        float64(req.Options.TopP),
+			TopK:        req.Options.TopK,
+			Stop:        req.Options.Stop,
+		}
 	}
 
 	body, err := json.Marshal(creq)
@@ -250,25 +250,33 @@ func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionReque
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024) // 16MB max for base64 image
+	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
 	for scanner.Scan() {
-		var raw struct {
-			Image      string `json:"image,omitempty"`
-			Done       bool   `json:"done"`
-			Step       int    `json:"step,omitempty"`
-			Total      int    `json:"total,omitempty"`
-			StopReason string `json:"stop_reason,omitempty"`
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
 		}
-		if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
-			slog.Debug("openvino response parse error", "error", err, "line", string(scanner.Bytes()))
+
+		var raw struct {
+			Content      string `json:""content,omitempty""`
+			Done         bool   `json:""done""`
+			EvalCount    int    `json:""eval_count,omitempty""`
+			EvalDuration int    `json:""eval_duration,omitempty""`
+		}
+		if err := json.Unmarshal(line, &raw); err != nil {
+			slog.Debug("openvino response parse error", "error", err, "line", string(line))
 			continue
 		}
 
 		cresp := llm.CompletionResponse{
-			Done:       raw.Done,
-			Step:       raw.Step,
-			TotalSteps: raw.Total,
-			Image:      raw.Image,
+			Content: raw.Content,
+			Done:    raw.Done,
+		}
+
+		if raw.Done {
+			cresp.DoneReason = llm.DoneReasonStop
+			cresp.EvalCount = raw.EvalCount
+			cresp.EvalDuration = time.Duration(raw.EvalDuration) * time.Millisecond
 		}
 
 		fn(cresp)
@@ -296,7 +304,7 @@ func (s *OpenVINOServer) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cmd != nil && s.cmd.Process != nil {
-		slog.Info("stopping openvino runner subprocess", "pid", s.cmd.Process.Pid)
+		slog.Info("stopping openvino llm runner subprocess", "pid", s.cmd.Process.Pid)
 		s.cmd.Process.Signal(os.Interrupt)
 		select {
 		case <-s.done:
@@ -318,22 +326,22 @@ func (s *OpenVINOServer) VRAMByGPU(id ml.DeviceID) uint64 {
 	return s.vramSize
 }
 
-// ContextLength is not applicable for image generation.
-func (s *OpenVINOServer) ContextLength() int { return 0 }
+// ContextLength returns the context window size.
+func (s *OpenVINOServer) ContextLength() int { return 8192 }
 
-// Embedding is not supported for image generation.
+// Embedding is not yet supported for OpenVINO LLM.
 func (s *OpenVINOServer) Embedding(ctx context.Context, input string) ([]float32, int, error) {
-	return nil, 0, errors.New("embeddings not supported for openvino image generation")
+	return nil, 0, errors.New("embeddings not yet supported for openvino llm")
 }
 
-// Tokenize is not supported for image generation.
+// Tokenize is not yet supported for OpenVINO LLM.
 func (s *OpenVINOServer) Tokenize(ctx context.Context, content string) ([]int, error) {
-	return nil, errors.New("tokenization not supported for openvino image generation")
+	return nil, errors.New("tokenization not yet supported for openvino llm")
 }
 
-// Detokenize is not supported for image generation.
+// Detokenize is not yet supported for OpenVINO LLM.
 func (s *OpenVINOServer) Detokenize(ctx context.Context, tokens []int) (string, error) {
-	return "", errors.New("detokenization not supported for openvino image generation")
+	return "", errors.New("detokenization not yet supported for openvino llm")
 }
 
 // Pid returns the subprocess PID.

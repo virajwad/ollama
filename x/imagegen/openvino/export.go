@@ -11,8 +11,8 @@ package openvino
 import "C"
 import "unsafe"
 
-//export goOpenVINOProgressBridge
-func goOpenVINOProgressBridge(step, total C.int, userdata unsafe.Pointer) C.bool {
+//export goOpenVINOTokenBridge
+func goOpenVINOTokenBridge(token *C.char, userdata unsafe.Pointer) C.bool {
 	id := uintptr(userdata)
 	b := lookupBridge(id)
 	if b == nil {
@@ -27,8 +27,11 @@ func goOpenVINOProgressBridge(step, total C.int, userdata unsafe.Pointer) C.bool
 	default:
 	}
 
+	goToken := C.GoString(token)
 	if b.fn != nil {
-		b.fn(int(step), int(total))
+		if !b.fn(goToken) {
+			return C.bool(false)
+		}
 	}
 	return C.bool(true)
 }

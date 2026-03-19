@@ -1,40 +1,32 @@
 //go:build openvino
 
-// Package openvino provides Go bindings for the OpenVINO GenAI Text2ImagePipeline.
+// Package openvino provides Go bindings for the OpenVINO GenAI LLMPipeline.
 package openvino
 
 /*
-#cgo CFLAGS: -I${SRCDIR}
-#cgo LDFLAGS: -L${SRCDIR} -lopenvino_genai_c_wrapper -lopenvino -lopenvino_genai -lstdc++
+#cgo CFLAGS: -I${SRCDIR} -DOV_WRAPPER_IMPORTS
+#cgo LDFLAGS: -L${SRCDIR}/build/Release -lopenvino_genai_c_wrapper
 #include "openvino_c.h"
 #include <stdlib.h>
 
 // Bridge function declared here, defined in export.go via //export.
-extern _Bool goOpenVINOProgressBridge(int step, int total, void* userdata);
-
-// C-callable trampoline that forwards to the Go bridge.
-static _Bool ov_progress_trampoline(int32_t step, int32_t total, void* userdata) {
-    return goOpenVINOProgressBridge((int)step, (int)total, userdata);
-}
+extern _Bool goOpenVINOTokenBridge(const char* token, void* userdata);
 */
 import "C"
 
 import (
 	"context"
 	"fmt"
-	"image"
-	"image/color"
 	"sync"
 	"unsafe"
 )
-
-// Pipeline wraps an OpenVINO GenAI Text2ImagePipeline.
+// Pipeline wraps an OpenVINO GenAI LLMPipeline.
 type Pipeline struct {
-	handle C.ov_t2i_pipeline_t
+	handle C.ov_llm_pipeline_t
 	mu     sync.Mutex
 }
 
-// NewPipeline creates a new Text2ImagePipeline from a model directory.
+// NewPipeline creates a new LLMPipeline from a model directory.
 // modelDir must contain the OpenVINO IR files exported via optimum-intel.
 // device is "CPU", "GPU", or "NPU".
 func NewPipeline(modelDir, device string) (*Pipeline, error) {
@@ -43,9 +35,9 @@ func NewPipeline(modelDir, device string) (*Pipeline, error) {
 	cDev := C.CString(device)
 	defer C.free(unsafe.Pointer(cDev))
 
-	handle := C.ov_t2i_create(cDir, cDev)
+	handle := C.ov_llm_create(cDir, cDev)
 	if handle == nil {
-		return nil, fmt.Errorf("openvino: %s", C.GoString(C.ov_t2i_last_error()))
+		return nil, fmt.Errorf("openvino: %s", C.GoString(C.ov_llm_last_error()))
 	}
 
 	return &Pipeline{handle: handle}, nil
@@ -56,35 +48,36 @@ func (p *Pipeline) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle != nil {
-		C.ov_t2i_destroy(p.handle)
+		C.ov_llm_destroy(p.handle)
 		p.handle = nil
 	}
 }
 
-// GenerateConfig holds parameters for image generation.
+// GenerateConfig holds parameters for text generation.
 type GenerateConfig struct {
-	Prompt        string
-	Width         int32
-	Height        int32
-	Steps         int32
-	Seed          int64
-	GuidanceScale float32
+	Prompt            string
+	MaxNewTokens      int32
+	Temperature       float32
+	TopP              float32
+	TopK              int32
+	RepetitionPenalty float32
+	DoSample          bool
 }
 
-// progressBridge routes C callbacks back into Go closures.
-type progressBridge struct {
+// tokenBridge routes C callbacks back into Go closures.
+type tokenBridge struct {
 	ctx       context.Context
-	fn        func(step, total int)
+	fn        func(token string) bool // return false to stop
 	cancelled bool
 }
 
 var (
 	bridgeMu   sync.Mutex
-	bridgeMap  = make(map[uintptr]*progressBridge)
+	bridgeMap  = make(map[uintptr]*tokenBridge)
 	bridgeNext uintptr
 )
 
-func registerBridge(b *progressBridge) uintptr {
+func registerBridge(b *tokenBridge) uintptr {
 	bridgeMu.Lock()
 	defer bridgeMu.Unlock()
 	bridgeNext++
@@ -99,77 +92,57 @@ func unregisterBridge(id uintptr) {
 }
 
 // lookupBridge is called from the exported callback in export.go.
-func lookupBridge(id uintptr) *progressBridge {
+func lookupBridge(id uintptr) *tokenBridge {
 	bridgeMu.Lock()
 	defer bridgeMu.Unlock()
 	return bridgeMap[id]
 }
 
-// Generate produces an image from the given config.
-func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, progress func(step, total int)) (image.Image, error) {
+// Generate produces text from the given config, streaming tokens via the callback.
+// tokenFn is called for each generated token; return false to stop generation.
+func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn func(token string) bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.handle == nil {
-		return nil, fmt.Errorf("openvino: pipeline is closed")
+		return fmt.Errorf("openvino: pipeline is closed")
 	}
 
 	cPrompt := C.CString(cfg.Prompt)
 	defer C.free(unsafe.Pointer(cPrompt))
 
-	cConfig := C.ov_t2i_config_t{
-		prompt:              cPrompt,
-		width:               C.int32_t(cfg.Width),
-		height:              C.int32_t(cfg.Height),
-		num_inference_steps: C.int32_t(cfg.Steps),
-		seed:                C.int64_t(cfg.Seed),
-		guidance_scale:      C.float(cfg.GuidanceScale),
+	cConfig := C.ov_llm_config_t{
+		prompt:             cPrompt,
+		max_new_tokens:     C.int32_t(cfg.MaxNewTokens),
+		temperature:        C.float(cfg.Temperature),
+		top_p:              C.float(cfg.TopP),
+		top_k:              C.int32_t(cfg.TopK),
+		repetition_penalty: C.float(cfg.RepetitionPenalty),
+		do_sample:          C.bool(cfg.DoSample),
 	}
 
-	bridge := &progressBridge{ctx: ctx, fn: progress}
+	bridge := &tokenBridge{ctx: ctx, fn: tokenFn}
 	bridgeID := registerBridge(bridge)
 	defer unregisterBridge(bridgeID)
 
-	var result C.ov_t2i_result_t
-	rc := C.ov_t2i_generate(
+	rc := C.ov_llm_generate(
 		p.handle,
 		&cConfig,
-		C.ov_t2i_progress_fn(C.ov_progress_trampoline),
+		C.ov_llm_token_fn(C.goOpenVINOTokenBridge),
 		unsafe.Pointer(bridgeID),
-		&result,
 	)
 
 	if rc != 0 {
 		if bridge.cancelled {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
-		return nil, fmt.Errorf("openvino: %s", C.GoString(C.ov_t2i_last_error()))
-	}
-	defer C.ov_t2i_free_pixels(result.pixels)
-
-	w := int(result.width)
-	h := int(result.height)
-	ch := int(result.channels)
-	srcSize := w * h * ch
-	src := C.GoBytes(unsafe.Pointer(result.pixels), C.int(srcSize))
-
-	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			off := (y*w + x) * ch
-			img.SetNRGBA(x, y, color.NRGBA{
-				R: src[off],
-				G: src[off+1],
-				B: src[off+2],
-				A: 255,
-			})
-		}
+		return fmt.Errorf("openvino: %s", C.GoString(C.ov_llm_last_error()))
 	}
 
-	return img, nil
+	return nil
 }
 
 // IsAvailable checks if the OpenVINO runtime can be reached.
 func IsAvailable() bool {
-	return bool(C.ov_t2i_is_available())
+	return bool(C.ov_llm_is_available())
 }
