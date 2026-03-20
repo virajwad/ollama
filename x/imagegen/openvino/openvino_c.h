@@ -55,7 +55,11 @@ typedef bool (*ov_llm_token_fn)(const char* token, void* userdata);
  * device: "CPU", "GPU", or "NPU"
  * Returns NULL on failure; call ov_llm_last_error() for details.
  */
-OV_WRAPPER_API ov_llm_pipeline_t ov_llm_create(const char* model_dir, const char* device);
+/*
+ * cache_dir: path to store compiled model blobs (NULL to disable).
+ * Greatly reduces load time on GPU/NPU after the first run.
+ */
+OV_WRAPPER_API ov_llm_pipeline_t ov_llm_create(const char* model_dir, const char* device, const char* cache_dir);
 
 /* Destroy a pipeline and free all resources. */
 OV_WRAPPER_API void ov_llm_destroy(ov_llm_pipeline_t pipeline);

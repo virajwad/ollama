@@ -33,6 +33,7 @@ type OpenVINOServer struct {
 	port        int
 	modelDir    string // local path to the OpenVINO IR model directory
 	device      string // "CPU", "GPU", or "NPU"
+	cacheDir    string // path to cache compiled model blobs
 	vramSize    uint64
 	done        chan error
 	client      *http.Client
@@ -52,9 +53,16 @@ func NewOpenVINOServer(modelDir string) (*OpenVINOServer, error) {
 		device = "CPU"
 	}
 
+	cacheDir := os.Getenv("OLLAMA_OPENVINO_CACHE_DIR")
+	if cacheDir == "" {
+		cacheDir = filepath.Join(modelDir, "cache")
+	}
+	slog.Info("openvino model cache", "cache_dir", cacheDir)
+
 	return &OpenVINOServer{
 		modelDir: modelDir,
 		device:   device,
+		cacheDir: cacheDir,
 		vramSize: 8 * 1024 * 1024 * 1024, // 8 GB estimate
 		done:     make(chan error, 1),
 		client:   &http.Client{Timeout: 10 * time.Minute},
@@ -90,11 +98,15 @@ func (s *OpenVINOServer) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.De
 	}
 
 	// Spawn: ollama runner --openvino-llm-engine --model <dir> --device <dev> --port <port>
-	cmd := exec.Command(exe, "runner", "--openvino-llm-engine",
+	args := []string{"runner", "--openvino-llm-engine",
 		"--model", s.modelDir,
 		"--device", s.device,
 		"--port", strconv.Itoa(port),
-	)
+	}
+	if s.cacheDir != "" {
+		args = append(args, "--cache-dir", s.cacheDir)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Env = os.Environ()
 
 	// On Linux, ensure OpenVINO runtime libraries are on LD_LIBRARY_PATH

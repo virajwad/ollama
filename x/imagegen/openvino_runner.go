@@ -25,6 +25,7 @@ func ExecuteOpenVINO(args []string) error {
 	fs := flag.NewFlagSet("openvino-llm-runner", flag.ExitOnError)
 	modelDir := fs.String("model", "", "path to OpenVINO IR model directory")
 	device := fs.String("device", "CPU", "OpenVINO device (CPU, GPU, NPU)")
+	cacheDir := fs.String("cache-dir", "", "path to cache compiled model blobs")
 	port := fs.Int("port", 0, "port to listen on")
 
 	if err := fs.Parse(args); err != nil {
@@ -38,9 +39,9 @@ func ExecuteOpenVINO(args []string) error {
 		return fmt.Errorf("--port is required")
 	}
 
-	slog.Info("starting openvino llm runner", "model", *modelDir, "device", *device, "port", *port)
+	slog.Info("starting openvino llm runner", "model", *modelDir, "device", *device, "cache_dir", *cacheDir, "port", *port)
 
-	pipeline, err := openvino.NewPipeline(*modelDir, *device)
+	pipeline, err := openvino.NewPipeline(*modelDir, *device, *cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create openvino pipeline: %w", err)
 	}

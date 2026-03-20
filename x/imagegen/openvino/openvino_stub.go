@@ -23,7 +23,7 @@ type GenerateConfig struct {
 }
 
 // NewPipeline returns an error when OpenVINO is not compiled in.
-func NewPipeline(_, _ string) (*Pipeline, error) {
+func NewPipeline(_, _, _ string) (*Pipeline, error) {
 	return nil, fmt.Errorf("openvino: not compiled in (build with -tags openvino)")
 }
 

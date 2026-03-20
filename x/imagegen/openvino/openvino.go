@@ -29,13 +29,16 @@ type Pipeline struct {
 // NewPipeline creates a new LLMPipeline from a model directory.
 // modelDir must contain the OpenVINO IR files exported via optimum-intel.
 // device is "CPU", "GPU", or "NPU".
-func NewPipeline(modelDir, device string) (*Pipeline, error) {
+// cacheDir enables model caching to reduce load time (empty string to disable).
+func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 	cDir := C.CString(modelDir)
 	defer C.free(unsafe.Pointer(cDir))
 	cDev := C.CString(device)
 	defer C.free(unsafe.Pointer(cDev))
+	cCache := C.CString(cacheDir)
+	defer C.free(unsafe.Pointer(cCache))
 
-	handle := C.ov_llm_create(cDir, cDev)
+	handle := C.ov_llm_create(cDir, cDev, cCache)
 	if handle == nil {
 		return nil, fmt.Errorf("openvino: %s", C.GoString(C.ov_llm_last_error()))
 	}

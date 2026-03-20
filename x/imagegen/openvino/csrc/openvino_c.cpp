@@ -4,6 +4,7 @@
 
 #include <openvino/genai/llm_pipeline.hpp>
 #include <openvino/runtime/core.hpp>
+#include <openvino/runtime/properties.hpp>
 
 #include <cstring>
 #include <functional>
@@ -18,17 +19,23 @@ static void set_error(const std::string& msg) {
 struct ov_llm_pipeline_impl {
     ov::genai::LLMPipeline pipeline;
 
-    ov_llm_pipeline_impl(const std::string& model_dir, const std::string& device)
-        : pipeline(model_dir, device) {}
+    ov_llm_pipeline_impl(const std::string& model_dir, const std::string& device,
+                         const ov::AnyMap& properties)
+        : pipeline(model_dir, device, properties) {}
 };
 
 extern "C" {
 
-ov_llm_pipeline_t ov_llm_create(const char* model_dir, const char* device) {
+ov_llm_pipeline_t ov_llm_create(const char* model_dir, const char* device, const char* cache_dir) {
     try {
+        ov::AnyMap properties;
+        if (cache_dir && cache_dir[0] != '\0') {
+            properties[ov::cache_dir.name()] = std::string(cache_dir);
+        }
         auto* impl = new ov_llm_pipeline_impl(
             std::string(model_dir),
-            std::string(device));
+            std::string(device),
+            properties);
         return impl;
     } catch (const std::exception& e) {
         set_error(std::string("ov_llm_create: ") + e.what());
