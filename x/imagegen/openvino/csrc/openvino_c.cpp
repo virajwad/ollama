@@ -3,6 +3,7 @@
 #include "openvino_c.h"
 
 #include <openvino/genai/llm_pipeline.hpp>
+#include <openvino/genai/streamer_base.hpp>
 #include <openvino/runtime/core.hpp>
 #include <openvino/runtime/properties.hpp>
 
@@ -73,25 +74,22 @@ int ov_llm_generate(ov_llm_pipeline_t pipeline,
 
         bool cancelled = false;
 
-        std::function<bool(std::string)> streamer_fn;
+        ov::genai::StreamerVariant streamer_var = std::monostate{};
+        std::function<ov::genai::StreamingStatus(std::string)> streamer_fn;
         if (token_fn) {
-            streamer_fn = [&](std::string token) -> bool {
+            streamer_fn = [&](std::string token) -> ov::genai::StreamingStatus {
                 bool should_continue = token_fn(token.c_str(), userdata);
                 if (!should_continue) {
                     cancelled = true;
+                    return ov::genai::StreamingStatus::STOP;
                 }
-                return !should_continue;
+                return ov::genai::StreamingStatus::RUNNING;
             };
+            streamer_var = streamer_fn;
         }
 
-        ov::genai::DecodedResults result;
-        if (streamer_fn) {
-            result = pipeline->pipeline.generate(
-                std::string(config->prompt), gen_config, streamer_fn);
-        } else {
-            result = pipeline->pipeline.generate(
-                std::string(config->prompt), gen_config);
-        }
+        ov::genai::DecodedResults result = pipeline->pipeline.generate(
+            std::string(config->prompt), gen_config, streamer_var);
 
         /* Extract perf metrics if caller wants them */
         if (metrics) {
