@@ -164,7 +164,7 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 		return true
 	}
 
-	err := s.pipeline.Generate(ctx, cfg, tokenFn)
+	metrics, err := s.pipeline.Generate(ctx, cfg, tokenFn)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -175,10 +175,27 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	}
 
 	elapsed := time.Since(start)
-	enc.Encode(Response{
+	finalResp := Response{
 		Done:         true,
 		EvalCount:    tokenCount,
 		EvalDuration: int(elapsed.Milliseconds()),
-	})
+	}
+	if metrics != nil {
+		finalResp.GenerateDuration = metrics.GenerateDuration
+		finalResp.TTFT = metrics.TTFT
+		finalResp.TPOT = metrics.TPOT
+		finalResp.Throughput = metrics.Throughput
+		finalResp.EvalCount = int(metrics.NumGenerated)
+		finalResp.NumInputTokens = int(metrics.NumInput)
+		finalResp.PromptEvalCount = int(metrics.NumInput)
+		// PromptEvalDuration = TTFT (time to first token covers prompt processing)
+		finalResp.PromptEvalDuration = int(metrics.TTFT)
+		// EvalDuration = generation time excluding prompt eval (generate_duration - TTFT)
+		evalDur := metrics.GenerateDuration - metrics.TTFT
+		if evalDur > 0 {
+			finalResp.EvalDuration = int(evalDur)
+		}
+	}
+	enc.Encode(finalResp)
 	flusher.Flush()
 }

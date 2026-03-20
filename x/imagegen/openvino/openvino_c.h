@@ -32,6 +32,17 @@ typedef struct {
     bool        do_sample;
 } ov_llm_config_t;
 
+/* Performance metrics returned after generation. */
+typedef struct {
+    float generate_duration;     /* Total generation time in ms */
+    float ttft;                  /* Time to first token in ms */
+    float tpot;                  /* Time per output token in ms */
+    float throughput;            /* Tokens per second */
+    float load_time;             /* Model load time in ms */
+    int32_t num_generated_tokens; /* Number of generated tokens */
+    int32_t num_input_tokens;     /* Number of input tokens */
+} ov_llm_perf_metrics_t;
+
 /*
  * Streaming token callback.
  * Called for each generated token.
@@ -52,12 +63,14 @@ OV_WRAPPER_API void ov_llm_destroy(ov_llm_pipeline_t pipeline);
 /*
  * Generate text from a prompt. Blocks until complete or cancelled.
  * token_fn is called for each generated token (may be NULL for non-streaming).
+ * metrics is filled with performance data if non-NULL.
  * Returns 0 on success, 1 on cancellation, -1 on error.
  */
 OV_WRAPPER_API int ov_llm_generate(ov_llm_pipeline_t pipeline,
                     const ov_llm_config_t* config,
                     ov_llm_token_fn token_fn,
-                    void* userdata);
+                    void* userdata,
+                    ov_llm_perf_metrics_t* metrics);
 
 /* Get last error message (thread-local). */
 OV_WRAPPER_API const char* ov_llm_last_error(void);

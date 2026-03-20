@@ -30,10 +30,21 @@ func NewPipeline(_, _ string) (*Pipeline, error) {
 // Close is a no-op.
 func (p *Pipeline) Close() {}
 
+// PerfMetrics contains performance metrics from OpenVINO GenAI.
+type PerfMetrics struct {
+	GenerateDuration float32
+	TTFT             float32
+	TPOT             float32
+	Throughput       float32
+	LoadTime         float32
+	NumGenerated     int32
+	NumInput         int32
+}
+
 // Generate returns an error when OpenVINO is not compiled in.
 // tokenFn receives each generated token; return false to stop.
-func (p *Pipeline) Generate(_ context.Context, _ *GenerateConfig, _ func(string) bool) error {
-	return fmt.Errorf("openvino: not compiled in")
+func (p *Pipeline) Generate(_ context.Context, _ *GenerateConfig, _ func(string) bool) (*PerfMetrics, error) {
+	return nil, fmt.Errorf("openvino: not compiled in")
 }
 
 // IsAvailable always returns false.

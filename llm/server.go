@@ -1519,6 +1519,10 @@ type CompletionResponse struct {
 	EvalCount          int           `json:"eval_count"`
 	EvalDuration       time.Duration `json:"eval_duration"`
 
+	// OpenVINO GenAI metrics
+	TTFT       float64 `json:"ttft_ms,omitempty"`
+	Throughput float64 `json:"throughput_tps,omitempty"`
+
 	// Logprobs contains log probability information if requested
 	Logprobs []Logprob `json:"logprobs,omitempty"`
 

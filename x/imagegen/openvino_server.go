@@ -258,10 +258,16 @@ func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionReque
 		}
 
 		var raw struct {
-			Content      string `json:""content,omitempty""`
-			Done         bool   `json:""done""`
-			EvalCount    int    `json:""eval_count,omitempty""`
-			EvalDuration int    `json:""eval_duration,omitempty""`
+			Content          string  `json:"content,omitempty"`
+			Done             bool    `json:"done"`
+			EvalCount        int     `json:"eval_count,omitempty"`
+			EvalDuration         int     `json:"eval_duration,omitempty"`
+			PromptEvalDuration   int     `json:"prompt_eval_duration,omitempty"`
+			PromptEvalCount  int     `json:"prompt_eval_count,omitempty"`
+			GenerateDuration float32 `json:"ov_generate_duration,omitempty"`
+			TTFT             float32 `json:"ov_ttft,omitempty"`
+			TPOT             float32 `json:"ov_tpot,omitempty"`
+			Throughput       float32 `json:"ov_throughput,omitempty"`
 		}
 		if err := json.Unmarshal(line, &raw); err != nil {
 			slog.Debug("openvino response parse error", "error", err, "line", string(line))
@@ -277,6 +283,18 @@ func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionReque
 			cresp.DoneReason = llm.DoneReasonStop
 			cresp.EvalCount = raw.EvalCount
 			cresp.EvalDuration = time.Duration(raw.EvalDuration) * time.Millisecond
+			cresp.PromptEvalCount = raw.PromptEvalCount
+			// Use runner-computed PromptEvalDuration (= TTFT in ms)
+			cresp.PromptEvalDuration = time.Duration(raw.PromptEvalDuration) * time.Millisecond
+			cresp.TTFT = float64(raw.TTFT)
+			cresp.Throughput = float64(raw.Throughput)
+			slog.Info("openvino perf metrics",
+				"generate_duration_ms", raw.GenerateDuration,
+				"ttft_ms", raw.TTFT,
+				"tpot_ms", raw.TPOT,
+				"throughput_tok_s", raw.Throughput,
+				"eval_count", raw.EvalCount,
+				"prompt_eval_count", raw.PromptEvalCount)
 		}
 
 		fn(cresp)

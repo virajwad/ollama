@@ -603,6 +603,8 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					PromptEvalDuration: cr.PromptEvalDuration,
 					EvalCount:          cr.EvalCount,
 					EvalDuration:       cr.EvalDuration,
+					TTFT:               cr.TTFT,
+					Throughput:         cr.Throughput,
 				},
 				Logprobs: toAPILogprobs(cr.Logprobs),
 			}
@@ -2442,6 +2444,8 @@ func (s *Server) ChatHandler(c *gin.Context) {
 						PromptEvalDuration: r.PromptEvalDuration,
 						EvalCount:          r.EvalCount,
 						EvalDuration:       r.EvalDuration,
+						TTFT:               r.TTFT,
+						Throughput:         r.Throughput,
 					},
 					Logprobs: toAPILogprobs(r.Logprobs),
 				}

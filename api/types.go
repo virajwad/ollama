@@ -574,6 +574,10 @@ type Metrics struct {
 	PromptEvalDuration time.Duration `json:"prompt_eval_duration,omitempty"`
 	EvalCount          int           `json:"eval_count,omitempty"`
 	EvalDuration       time.Duration `json:"eval_duration,omitempty"`
+
+	// OpenVINO GenAI metrics (set only when using the OpenVINO backend)
+	TTFT       float64 `json:"ttft_ms,omitempty"`       // Time to first token in ms
+	Throughput float64 `json:"throughput_tps,omitempty"` // Tokens per second from OV GenAI
 }
 
 // Options specified in [GenerateRequest].  If you add a new option here, also
@@ -947,12 +951,21 @@ func (m *Metrics) Summary() {
 		fmt.Fprintf(os.Stderr, "prompt eval rate:     %.2f tokens/s\n", float64(m.PromptEvalCount)/m.PromptEvalDuration.Seconds())
 	}
 
+	if m.TTFT > 0 {
+		fmt.Fprintf(os.Stderr, "time to first token:  %.2f ms\n", m.TTFT)
+	}
+
 	if m.EvalCount > 0 {
 		fmt.Fprintf(os.Stderr, "eval count:           %d token(s)\n", m.EvalCount)
 	}
 
 	if m.EvalDuration > 0 {
 		fmt.Fprintf(os.Stderr, "eval duration:        %s\n", m.EvalDuration)
+	}
+
+	if m.Throughput > 0 {
+		fmt.Fprintf(os.Stderr, "eval rate:            %.2f tokens/s\n", m.Throughput)
+	} else if m.EvalDuration > 0 {
 		fmt.Fprintf(os.Stderr, "eval rate:            %.2f tokens/s\n", float64(m.EvalCount)/m.EvalDuration.Seconds())
 	}
 }

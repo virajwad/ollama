@@ -98,14 +98,26 @@ func lookupBridge(id uintptr) *tokenBridge {
 	return bridgeMap[id]
 }
 
+// PerfMetrics contains performance metrics from OpenVINO GenAI.
+type PerfMetrics struct {
+	GenerateDuration float32 // Total generation time in ms
+	TTFT             float32 // Time to first token in ms
+	TPOT             float32 // Time per output token in ms
+	Throughput       float32 // Tokens per second
+	LoadTime         float32 // Model load time in ms
+	NumGenerated     int32   // Number of generated tokens
+	NumInput         int32   // Number of input tokens
+}
+
 // Generate produces text from the given config, streaming tokens via the callback.
 // tokenFn is called for each generated token; return false to stop generation.
-func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn func(token string) bool) error {
+// Returns PerfMetrics from the OpenVINO GenAI pipeline.
+func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn func(token string) bool) (*PerfMetrics, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.handle == nil {
-		return fmt.Errorf("openvino: pipeline is closed")
+		return nil, fmt.Errorf("openvino: pipeline is closed")
 	}
 
 	cPrompt := C.CString(cfg.Prompt)
@@ -125,21 +137,32 @@ func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn fu
 	bridgeID := registerBridge(bridge)
 	defer unregisterBridge(bridgeID)
 
+	var cMetrics C.ov_llm_perf_metrics_t
 	rc := C.ov_llm_generate(
 		p.handle,
 		&cConfig,
 		C.ov_llm_token_fn(C.goOpenVINOTokenBridge),
 		unsafe.Pointer(bridgeID),
+		&cMetrics,
 	)
 
 	if rc != 0 {
 		if bridge.cancelled {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
-		return fmt.Errorf("openvino: %s", C.GoString(C.ov_llm_last_error()))
+		return nil, fmt.Errorf("openvino: %s", C.GoString(C.ov_llm_last_error()))
 	}
 
-	return nil
+	metrics := &PerfMetrics{
+		GenerateDuration: float32(cMetrics.generate_duration),
+		TTFT:             float32(cMetrics.ttft),
+		TPOT:             float32(cMetrics.tpot),
+		Throughput:       float32(cMetrics.throughput),
+		LoadTime:         float32(cMetrics.load_time),
+		NumGenerated:     int32(cMetrics.num_generated_tokens),
+		NumInput:         int32(cMetrics.num_input_tokens),
+	}
+	return metrics, nil
 }
 
 // IsAvailable checks if the OpenVINO runtime can be reached.

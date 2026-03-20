@@ -43,7 +43,8 @@ void ov_llm_destroy(ov_llm_pipeline_t pipeline) {
 int ov_llm_generate(ov_llm_pipeline_t pipeline,
                     const ov_llm_config_t* config,
                     ov_llm_token_fn token_fn,
-                    void* userdata) {
+                    void* userdata,
+                    ov_llm_perf_metrics_t* metrics) {
     if (!pipeline || !config) {
         set_error("null argument");
         return -1;
@@ -67,10 +68,6 @@ int ov_llm_generate(ov_llm_pipeline_t pipeline,
 
         std::function<bool(std::string)> streamer_fn;
         if (token_fn) {
-            /*
-             * OpenVINO GenAI streamer lambda:
-             *   Return false to continue, true to stop.
-             */
             streamer_fn = [&](std::string token) -> bool {
                 bool should_continue = token_fn(token.c_str(), userdata);
                 if (!should_continue) {
@@ -80,12 +77,26 @@ int ov_llm_generate(ov_llm_pipeline_t pipeline,
             };
         }
 
+        ov::genai::DecodedResults result;
         if (streamer_fn) {
-            pipeline->pipeline.generate(
+            result = pipeline->pipeline.generate(
                 std::string(config->prompt), gen_config, streamer_fn);
         } else {
-            pipeline->pipeline.generate(
+            result = pipeline->pipeline.generate(
                 std::string(config->prompt), gen_config);
+        }
+
+        /* Extract perf metrics if caller wants them */
+        if (metrics) {
+            auto& pm = result.perf_metrics;
+            pm.evaluate_statistics();
+            metrics->generate_duration = pm.get_generate_duration().mean;
+            metrics->ttft = pm.get_ttft().mean;
+            metrics->tpot = pm.get_tpot().mean;
+            metrics->throughput = pm.get_throughput().mean;
+            metrics->load_time = pm.get_load_time();
+            metrics->num_generated_tokens = static_cast<int32_t>(pm.get_num_generated_tokens());
+            metrics->num_input_tokens = static_cast<int32_t>(pm.get_num_input_tokens());
         }
 
         if (cancelled) {

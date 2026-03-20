@@ -51,6 +51,13 @@ type Response struct {
 	PromptEvalDuration int `json:"prompt_eval_duration,omitempty"`
 	EvalCount          int `json:"eval_count,omitempty"`
 	EvalDuration       int `json:"eval_duration,omitempty"`
+
+	// OpenVINO GenAI perf metrics (ms unless noted)
+	GenerateDuration float32 `json:"ov_generate_duration,omitempty"`
+	TTFT             float32 `json:"ov_ttft,omitempty"`            // Time to first token
+	TPOT             float32 `json:"ov_tpot,omitempty"`            // Time per output token
+	Throughput       float32 `json:"ov_throughput,omitempty"`      // Tokens/sec
+	NumInputTokens   int     `json:"ov_num_input_tokens,omitempty"`
 }
 
 // HealthResponse is returned by the health endpoint.
