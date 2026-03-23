@@ -158,20 +158,59 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 		DoSample:          doSample,
 	}
 
+	// Buffered channel decouples OpenVINO inference from HTTP I/O.
+	// The C++ pipeline blocks until the streamer callback returns, so
+	// a near-instant channel send (~50ns) instead of JSON+flush (~ms)
+	// keeps the inference engine running at full speed.
+	tokenCh := make(chan string, 32)
+
+	// Writer goroutine: batch-drains available tokens, then flushes once.
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for tok := range tokenCh {
+			tokenCount++
+			enc.Encode(Response{Content: tok})
+			// Drain any additional buffered tokens before flushing
+			drain := true
+			for drain {
+				select {
+				case t, ok := <-tokenCh:
+					if !ok {
+						flusher.Flush()
+						return
+					}
+					tokenCount++
+					enc.Encode(Response{Content: t})
+				default:
+					drain = false
+				}
+			}
+			flusher.Flush()
+		}
+	}()
+
 	tokenFn := func(token string) bool {
-		tokenCount++
-		enc.Encode(Response{Content: token})
-		flusher.Flush()
-		return true
+		select {
+		case tokenCh <- token:
+			return true
+		case <-ctx.Done():
+			return false
+		}
 	}
 
 	metrics, err := s.pipeline.Generate(ctx, cfg, tokenFn)
+	close(tokenCh)
+	<-writerDone
+
 	if err != nil {
 		if ctx.Err() != nil {
 			return
 		}
 		slog.Error("openvino generation failed", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if tokenCount == 0 {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
