@@ -162,15 +162,17 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	// The C++ pipeline blocks until the streamer callback returns, so
 	// a near-instant channel send (~50ns) instead of JSON+flush (~ms)
 	// keeps the inference engine running at full speed.
-	tokenCh := make(chan string, 32)
+	tokenCh := make(chan string, 128)
 
 	// Writer goroutine: batch-drains available tokens, then flushes once.
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		resp := &Response{}
 		for tok := range tokenCh {
 			tokenCount++
-			enc.Encode(Response{Content: tok})
+			resp.Content = tok
+			enc.Encode(resp)
 			// Drain any additional buffered tokens before flushing
 			drain := true
 			for drain {
@@ -181,7 +183,8 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 						return
 					}
 					tokenCount++
-					enc.Encode(Response{Content: t})
+					resp.Content = t
+					enc.Encode(resp)
 				default:
 					drain = false
 				}

@@ -262,7 +262,7 @@ func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionReque
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 0, 4096), 64*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {

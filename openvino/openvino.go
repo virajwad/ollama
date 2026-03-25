@@ -75,7 +75,7 @@ type tokenBridge struct {
 }
 
 var (
-	bridgeMu   sync.Mutex
+	bridgeMu   sync.RWMutex
 	bridgeMap  = make(map[uintptr]*tokenBridge)
 	bridgeNext uintptr
 )
@@ -95,9 +95,10 @@ func unregisterBridge(id uintptr) {
 }
 
 // lookupBridge is called from the exported callback in export.go.
+// Uses RLock since it only reads the map - this is the per-token hot path.
 func lookupBridge(id uintptr) *tokenBridge {
-	bridgeMu.Lock()
-	defer bridgeMu.Unlock()
+	bridgeMu.RLock()
+	defer bridgeMu.RUnlock()
 	return bridgeMap[id]
 }
 
