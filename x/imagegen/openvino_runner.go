@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"io"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -165,14 +166,14 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	tokenCh := make(chan string, 128)
 
 	// Writer goroutine: batch-drains available tokens, then flushes once.
+	// Hand-writes minimal JSON for streaming tokens to avoid reflecting
+	// over all 16 fields of Response on every single token.
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		resp := &Response{}
 		for tok := range tokenCh {
 			tokenCount++
-			resp.Content = tok
-			enc.Encode(resp)
+			writeTokenJSON(w, tok)
 			// Drain any additional buffered tokens before flushing
 			drain := true
 			for drain {
@@ -183,8 +184,7 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 						return
 					}
 					tokenCount++
-					resp.Content = t
-					enc.Encode(resp)
+					writeTokenJSON(w, t)
 				default:
 					drain = false
 				}
@@ -194,6 +194,13 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	}()
 
 	tokenFn := func(token string) bool {
+		// Fast path: non-blocking send when buffer has space (common case).
+		// Only fall back to select with ctx.Done() when channel is full.
+		select {
+		case tokenCh <- token:
+			return true
+		default:
+		}
 		select {
 		case tokenCh <- token:
 			return true
@@ -241,4 +248,19 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	}
 	enc.Encode(finalResp)
 	flusher.Flush()
+}
+
+// writeTokenJSON writes a minimal streaming token JSON line directly,
+// bypassing encoding/json reflection. This is the hottest path in the
+// streaming pipeline — called once per generated token.
+// Output: {"content":"<escaped>","done":false}
+func writeTokenJSON(w io.Writer, token string) {
+	// json.Marshal handles all JSON string escaping (quotes, backslashes,
+	// control chars, unicode) correctly and returns a quoted []byte.
+	escaped, _ := json.Marshal(token)
+	buf := make([]byte, 0, 26+len(escaped))
+	buf = append(buf, "{\"content\":"...)
+	buf = append(buf, escaped...)
+	buf = append(buf, ",\"done\":false}\n"...)
+	w.Write(buf)
 }

@@ -16,22 +16,18 @@ import (
 
 //export goOpenVINOTokenBridge
 func goOpenVINOTokenBridge(str *C.char, args unsafe.Pointer) C.ov_genai_streaming_status_e {
-	// Recover the tokenCallback directly from the cgo.Handle.
-	// This is a simple integer→pointer lookup with no locking.
-	h := cgo.Handle(uintptr(args))
-	cb := h.Value().(*tokenCallback)
+	cb := cgo.Handle(uintptr(args)).Value().(*tokenCallback)
 
-	// Fast context cancellation check (no channel operation in the common case).
-	if err := cb.ctx.Err(); err != nil {
+	// Fast context cancellation check — ctx.Err() is a direct field read,
+	// no channel operation in the common (non-cancelled) case.
+	if cb.ctx.Err() != nil {
 		cb.cancelled = true
 		return C.OV_GENAI_STREAMING_STATUS_STOP
 	}
 
-	goToken := C.GoString(str)
-	if cb.fn != nil {
-		if !cb.fn(goToken) {
-			return C.OV_GENAI_STREAMING_STATUS_STOP
-		}
+	// cb.fn is guaranteed non-nil by Generate(); skip the nil check.
+	if !cb.fn(C.GoString(str)) {
+		return C.OV_GENAI_STREAMING_STATUS_STOP
 	}
 	return C.OV_GENAI_STREAMING_STATUS_RUNNING
 }
