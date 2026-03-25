@@ -6,32 +6,32 @@ package openvino
 // to live in a file with no other C preamble beyond the bare minimum.
 
 /*
-#include <stdbool.h>
+#include <openvino/genai/c/llm_pipeline.h>
 */
 import "C"
-import "unsafe"
+import (
+	"runtime/cgo"
+	"unsafe"
+)
 
 //export goOpenVINOTokenBridge
-func goOpenVINOTokenBridge(token *C.char, userdata unsafe.Pointer) C.bool {
-	id := uintptr(userdata)
-	b := lookupBridge(id)
-	if b == nil {
-		return C.bool(false)
+func goOpenVINOTokenBridge(str *C.char, args unsafe.Pointer) C.ov_genai_streaming_status_e {
+	// Recover the tokenCallback directly from the cgo.Handle.
+	// This is a simple integer→pointer lookup with no locking.
+	h := cgo.Handle(uintptr(args))
+	cb := h.Value().(*tokenCallback)
+
+	// Fast context cancellation check (no channel operation in the common case).
+	if err := cb.ctx.Err(); err != nil {
+		cb.cancelled = true
+		return C.OV_GENAI_STREAMING_STATUS_STOP
 	}
 
-	// Check context cancellation
-	select {
-	case <-b.ctx.Done():
-		b.cancelled = true
-		return C.bool(false)
-	default:
-	}
-
-	goToken := C.GoString(token)
-	if b.fn != nil {
-		if !b.fn(goToken) {
-			return C.bool(false)
+	goToken := C.GoString(str)
+	if cb.fn != nil {
+		if !cb.fn(goToken) {
+			return C.OV_GENAI_STREAMING_STATUS_STOP
 		}
 	}
-	return C.bool(true)
+	return C.OV_GENAI_STREAMING_STATUS_RUNNING
 }
