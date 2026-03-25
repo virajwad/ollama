@@ -1,4 +1,4 @@
-package imagegen
+package openvino
 
 import (
 	"bufio"
@@ -270,16 +270,16 @@ func (s *OpenVINOServer) Completion(ctx context.Context, req llm.CompletionReque
 		}
 
 		var raw struct {
-			Content          string  `json:"content,omitempty"`
-			Done             bool    `json:"done"`
-			EvalCount        int     `json:"eval_count,omitempty"`
-			EvalDuration         int     `json:"eval_duration,omitempty"`
-			PromptEvalDuration   int     `json:"prompt_eval_duration,omitempty"`
-			PromptEvalCount  int     `json:"prompt_eval_count,omitempty"`
-			GenerateDuration float32 `json:"ov_generate_duration,omitempty"`
-			TTFT             float32 `json:"ov_ttft,omitempty"`
-			TPOT             float32 `json:"ov_tpot,omitempty"`
-			Throughput       float32 `json:"ov_throughput,omitempty"`
+			Content            string  `json:"content,omitempty"`
+			Done               bool    `json:"done"`
+			EvalCount          int     `json:"eval_count,omitempty"`
+			EvalDuration       int     `json:"eval_duration,omitempty"`
+			PromptEvalDuration int     `json:"prompt_eval_duration,omitempty"`
+			PromptEvalCount    int     `json:"prompt_eval_count,omitempty"`
+			GenerateDuration   float32 `json:"ov_generate_duration,omitempty"`
+			TTFT               float32 `json:"ov_ttft,omitempty"`
+			TPOT               float32 `json:"ov_tpot,omitempty"`
+			Throughput         float32 `json:"ov_throughput,omitempty"`
 		}
 		if err := json.Unmarshal(line, &raw); err != nil {
 			slog.Debug("openvino response parse error", "error", err, "line", string(line))

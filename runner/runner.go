@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"github.com/ollama/ollama/openvino"
 	"github.com/ollama/ollama/runner/llamarunner"
 	"github.com/ollama/ollama/runner/ollamarunner"
 	"github.com/ollama/ollama/x/imagegen"
@@ -19,7 +20,7 @@ func Execute(args []string) error {
 		case "--imagegen-engine":
 			return imagegen.Execute(args[1:])
 		case "--openvino-llm-engine":
-			return imagegen.ExecuteOpenVINO(args[1:])
+			return openvino.ExecuteOpenVINO(args[1:])
 		case "--mlx-engine":
 			return mlxrunner.Execute(args[1:])
 		}

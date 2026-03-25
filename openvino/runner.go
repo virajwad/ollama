@@ -1,11 +1,11 @@
-package imagegen
+package openvino
 
 import (
 	"context"
 	"encoding/json"
 	"flag"
-	"io"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ollama/ollama/envconfig"
-	"github.com/ollama/ollama/openvino"
 )
 
 // ExecuteOpenVINO is the entry point for the OpenVINO LLM subprocess.
@@ -42,7 +41,7 @@ func ExecuteOpenVINO(args []string) error {
 
 	slog.Info("starting openvino llm runner", "model", *modelDir, "device", *device, "cache_dir", *cacheDir, "port", *port)
 
-	pipeline, err := openvino.NewPipeline(*modelDir, *device, *cacheDir)
+	pipeline, err := NewPipeline(*modelDir, *device, *cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create openvino pipeline: %w", err)
 	}
@@ -83,7 +82,7 @@ func ExecuteOpenVINO(args []string) error {
 }
 
 type openvinoLLMSubprocess struct {
-	pipeline *openvino.Pipeline
+	pipeline *Pipeline
 	mu       sync.Mutex
 }
 
@@ -149,7 +148,7 @@ func (s *openvinoLLMSubprocess) completionHandler(w http.ResponseWriter, r *http
 	tokenCount := 0
 	start := time.Now()
 
-	cfg := &openvino.GenerateConfig{
+	cfg := &GenerateConfig{
 		Prompt:            req.Prompt,
 		MaxNewTokens:      maxTokens,
 		Temperature:       temperature,

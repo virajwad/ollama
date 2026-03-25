@@ -21,6 +21,7 @@ import (
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/logutil"
 	"github.com/ollama/ollama/ml"
+	"github.com/ollama/ollama/openvino"
 	"github.com/ollama/ollama/types/model"
 	"github.com/ollama/ollama/x/imagegen"
 	"github.com/ollama/ollama/x/mlxrunner"
@@ -439,7 +440,7 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 		ovinoModelDir := os.Getenv("OLLAMA_OPENVINO_MODEL_DIR")
 		if ovinoModelDir != "" {
 			slog.Info("using openvino llm backend", "model_dir", ovinoModelDir)
-			llama, err = imagegen.NewOpenVINOServer(ovinoModelDir)
+			llama, err = openvino.NewOpenVINOServer(ovinoModelDir)
 		} else if !req.model.IsMLX() {
 			f, loadErr := llm.LoadModel(req.model.ModelPath, 1024)
 			if loadErr != nil {
