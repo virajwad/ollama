@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/ollama/ollama/envconfig"
-	"github.com/ollama/ollama/x/imagegen/openvino"
+	"github.com/ollama/ollama/openvino"
 )
 
 // ExecuteOpenVINO is the entry point for the OpenVINO LLM subprocess.
