@@ -1,17 +1,20 @@
 //go:build openvino
 
 // Package openvino provides Go bindings for the OpenVINO GenAI LLMPipeline.
-// This implementation links directly to the official openvino_genai_c DLL,
-// eliminating the custom C++ wrapper DLL and its overhead.
+// This implementation links directly to the official openvino_genai_c DLL.
+//
+// Before building, set OPENVINO_GENAI_ROOT and run go generate:
+//
+//	set OPENVINO_GENAI_ROOT=C:\path\to\openvino_genai_windows_...\openvino_genai_windows_...
+//	go generate ./openvino/...
+//	go build -tags openvino ./...
 package openvino
 
-/*
-// --- Include paths ---
-// OPENVINO_GENAI_ROOT must point to the extracted SDK, e.g.:
-//   C:/Users/dungeon/Downloads/openvino_genai_windows_2026.0.0.0_x86_64/openvino_genai_windows_2026.0.0.0_x86_64
+//go:generate go run generate_cgo_flags.go
 
-#cgo CFLAGS: -I${SRCDIR}/sdk/include
-#cgo LDFLAGS: -L${SRCDIR}/sdk/lib -lopenvino_genai_c -lopenvino_c
+/*
+// CFLAGS (-I) and LDFLAGS (-L, -l) are in cgo_flags_generated.go.
+// Run "go generate ./openvino/..." to create it from OPENVINO_GENAI_ROOT.
 
 #include <openvino/c/ov_common.h>
 #include <openvino/genai/c/llm_pipeline.h>
