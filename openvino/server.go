@@ -109,18 +109,21 @@ func (s *OpenVINOServer) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.De
 	cmd := exec.Command(exe, args...)
 	cmd.Env = os.Environ()
 
-	// On Linux/macOS, ensure OpenVINO runtime libraries are on the dynamic linker path
+	// On Linux/macOS, ensure OpenVINO runtime libraries are on the dynamic linker path.
+	// OPENVINO_GENAI_ROOT points to the GenAI SDK which bundles both the base
+	// OpenVINO runtime and the GenAI C libraries under runtime/lib/<arch>/Release.
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		ovinoRoot := os.Getenv("INTEL_OPENVINO_DIR")
-		if ovinoRoot != "" {
+		genaiRoot := os.Getenv("OPENVINO_GENAI_ROOT")
+		if genaiRoot != "" {
 			arch := "intel64"
 			envVar := "LD_LIBRARY_PATH"
 			if runtime.GOOS == "darwin" {
 				arch = "arm64"
 				envVar = "DYLD_LIBRARY_PATH"
 			}
+
 			libraryPaths := []string{
-				filepath.Join(ovinoRoot, "runtime", "lib", arch),
+				filepath.Join(genaiRoot, "runtime", "lib", arch, "Release"),
 			}
 			if existing, ok := os.LookupEnv(envVar); ok {
 				libraryPaths = append(libraryPaths, filepath.SplitList(existing)...)
