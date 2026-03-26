@@ -44,8 +44,8 @@ type OpenVINOServer struct {
 // NewOpenVINOServer creates a new OpenVINO LLM server.
 // modelDir is the local directory containing the exported OpenVINO IR model.
 func NewOpenVINOServer(modelDir string) (*OpenVINOServer, error) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
-		return nil, fmt.Errorf("openvino llm is supported on Windows and Linux, got %s", runtime.GOOS)
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("openvino llm is supported on Windows, Linux, and macOS, but got %s", runtime.GOOS)
 	}
 
 	device := os.Getenv("OLLAMA_OPENVINO_DEVICE")
@@ -109,29 +109,36 @@ func (s *OpenVINOServer) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.De
 	cmd := exec.Command(exe, args...)
 	cmd.Env = os.Environ()
 
-	// On Linux, ensure OpenVINO runtime libraries are on LD_LIBRARY_PATH
-	if runtime.GOOS == "linux" {
+	// On Linux/macOS, ensure OpenVINO runtime libraries are on the dynamic linker path
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		ovinoRoot := os.Getenv("INTEL_OPENVINO_DIR")
 		if ovinoRoot != "" {
-			libraryPaths := []string{
-				filepath.Join(ovinoRoot, "runtime", "lib", "intel64"),
+			arch := "intel64"
+			envVar := "LD_LIBRARY_PATH"
+			if runtime.GOOS == "darwin" {
+				arch = "arm64"
+				envVar = "DYLD_LIBRARY_PATH"
 			}
-			if existing, ok := os.LookupEnv("LD_LIBRARY_PATH"); ok {
+			libraryPaths := []string{
+				filepath.Join(ovinoRoot, "runtime", "lib", arch),
+			}
+			if existing, ok := os.LookupEnv(envVar); ok {
 				libraryPaths = append(libraryPaths, filepath.SplitList(existing)...)
 			}
 			pathVal := strings.Join(libraryPaths, string(filepath.ListSeparator))
 			found := false
+			prefix := envVar + "="
 			for i := range cmd.Env {
-				if strings.HasPrefix(cmd.Env[i], "LD_LIBRARY_PATH=") {
-					cmd.Env[i] = "LD_LIBRARY_PATH=" + pathVal
+				if strings.HasPrefix(cmd.Env[i], prefix) {
+					cmd.Env[i] = prefix + pathVal
 					found = true
 					break
 				}
 			}
 			if !found {
-				cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+pathVal)
+				cmd.Env = append(cmd.Env, prefix+pathVal)
 			}
-			slog.Debug("openvino subprocess library path", "LD_LIBRARY_PATH", pathVal)
+			slog.Debug("openvino subprocess library path", envVar, pathVal)
 		}
 	}
 
