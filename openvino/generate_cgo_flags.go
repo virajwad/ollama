@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -26,7 +27,12 @@ func main() {
 	}
 
 	includeDir := filepath.Join(root, "runtime", "include")
-	libDir := filepath.Join(root, "runtime", "lib", "intel64", "Release")
+
+	arch := "intel64"
+	if runtime.GOOS == "darwin" {
+		arch = "arm64"
+	}
+	libDir := filepath.Join(root, "runtime", "lib", arch, "Release")
 
 	// Validate that the SDK directories exist.
 	if _, err := os.Stat(includeDir); err != nil {
