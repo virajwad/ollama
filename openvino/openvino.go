@@ -52,11 +52,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/cgo"
+	"strings"
 	"sync"
 	"unsafe"
 )
+
+// libPathOnce ensures we configure library search paths exactly once.
+var libPathOnce sync.Once
 
 // Pipeline wraps an OpenVINO GenAI LLMPipeline.
 type Pipeline struct {
@@ -69,6 +74,19 @@ type Pipeline struct {
 // device is "CPU", "GPU", or "NPU".
 // cacheDir enables model caching to reduce load time (empty string to disable).
 func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
+	// Ensure OpenVINO can discover its device plugin libraries (CPU plugin,
+	// tokenizers, TBB, etc.) at runtime. On macOS, SIP (System Integrity
+	// Protection) strips DYLD_LIBRARY_PATH during process exec, so even if
+	// the user sourced setupvars.sh the paths may be lost. We re-derive
+	// them from OPENVINO_GENAI_ROOT and set DYLD_LIBRARY_PATH /
+	// LD_LIBRARY_PATH in-process so that dlopen finds all required
+	// shared libraries (mirroring the official setupvars.sh script).
+	libPathOnce.Do(func() {
+		if genaiRoot := os.Getenv("OPENVINO_GENAI_ROOT"); genaiRoot != "" {
+			setupLibraryPaths(genaiRoot)
+		}
+	})
+
 	cDir := C.CString(modelDir)
 	defer C.free(unsafe.Pointer(cDir))
 	cDev := C.CString(device)
@@ -275,4 +293,52 @@ func IsAvailable() bool {
 	// The official C API doesn't have a direct "is available" check.
 	// We return true optimistically since the DLL loaded successfully.
 	return true
+}
+
+// setupLibraryPaths configures the dynamic library search paths from
+// OPENVINO_GENAI_ROOT, mirroring what the OpenVINO setupvars.sh script does.
+// On macOS, SIP strips DYLD_LIBRARY_PATH during process exec, so we must
+// re-derive and set the paths in-process to ensure OpenVINO's internal
+// plugin loader (dlopen) can find all required libraries: core plugins,
+// tokenizer, and TBB.
+func setupLibraryPaths(genaiRoot string) {
+	arch := "intel64"
+	if runtime.GOOS == "darwin" {
+		arch = "arm64"
+	}
+
+	libDir := filepath.Join(genaiRoot, "runtime", "lib", arch, "Release")
+	paths := []string{libDir}
+
+	// The OpenVINO SDK bundles TBB under runtime/3rdparty/tbb/lib.
+	// setupvars.sh adds this to DYLD_LIBRARY_PATH as well.
+	tbbDir := filepath.Join(genaiRoot, "runtime", "3rdparty", "tbb", "lib")
+	if info, err := os.Stat(tbbDir); err == nil && info.IsDir() {
+		paths = append(paths, tbbDir)
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		prependEnvPaths("DYLD_LIBRARY_PATH", paths)
+		prependEnvPaths("LD_LIBRARY_PATH", paths)
+		slog.Info("openvino: configured macOS library paths from OPENVINO_GENAI_ROOT",
+			"DYLD_LIBRARY_PATH", os.Getenv("DYLD_LIBRARY_PATH"))
+	case "linux":
+		prependEnvPaths("LD_LIBRARY_PATH", paths)
+		slog.Info("openvino: configured Linux library paths from OPENVINO_GENAI_ROOT",
+			"LD_LIBRARY_PATH", os.Getenv("LD_LIBRARY_PATH"))
+	default:
+		// On Windows the DLL search path is configured at link time and via
+		// PATH; no runtime fixup is required.
+	}
+}
+
+// prependEnvPaths prepends the given paths to an environment variable,
+// using the OS path list separator (: on Unix, ; on Windows).
+func prependEnvPaths(envVar string, paths []string) {
+	joined := strings.Join(paths, string(os.PathListSeparator))
+	if existing := os.Getenv(envVar); existing != "" {
+		joined = joined + string(os.PathListSeparator) + existing
+	}
+	os.Setenv(envVar, joined)
 }
