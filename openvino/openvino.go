@@ -107,9 +107,14 @@ func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 	var pipe *C.ov_genai_llm_pipeline
 	var status C.ov_status_e
 
+	// Skip model caching on macOS — the CACHE_DIR property is not
+	// reliably supported on ARM64 and causes pipeline creation failures.
+	if runtime.GOOS == "darwin" && cacheDir != "" {
+		slog.Info("openvino: model caching is not supported on macOS, ignoring cache_dir", "cache_dir", cacheDir)
+		cacheDir = ""
+	}
+
 	if cacheDir != "" {
-		// Ensure the cache directory exists before passing it to the C API;
-		// on macOS the OpenVINO runtime does not create it automatically.
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			slog.Warn("openvino: failed to create cache directory, continuing without cache", "cache_dir", cacheDir, "error", err)
 			cacheDir = ""
@@ -122,14 +127,6 @@ func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 		cVal := C.CString(cacheDir)
 		defer C.free(unsafe.Pointer(cVal))
 		status = C.ov_llm_pipeline_create_cache(cDir, cDev, &pipe, cKey, cVal)
-
-		// On macOS/ARM64 the CACHE_DIR property may not be supported;
-		// fall back to creating the pipeline without it.
-		if status != C.OK && runtime.GOOS == "darwin" {
-			slog.Warn("openvino: cached pipeline creation failed on macOS, retrying without cache",
-				"error", ovErrorDetail(status))
-			status = C.ov_llm_pipeline_create_no_props(cDir, cDev, &pipe)
-		}
 	} else {
 		status = C.ov_llm_pipeline_create_no_props(cDir, cDev, &pipe)
 	}
