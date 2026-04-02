@@ -63,6 +63,18 @@ import (
 // libPathOnce ensures we configure library search paths exactly once.
 var libPathOnce sync.Once
 
+// ovErrorDetail returns a combined error string from ov_get_error_info (the
+// status-code label) and ov_get_last_err_msg (the detailed runtime message
+// captured by the last failing C API call).
+func ovErrorDetail(status C.ov_status_e) string {
+	statusMsg := C.GoString(C.ov_get_error_info(status))
+	lastMsg := C.GoString(C.ov_get_last_err_msg())
+	if lastMsg != "" {
+		return statusMsg + ": " + lastMsg
+	}
+	return statusMsg
+}
+
 // Pipeline wraps an OpenVINO GenAI LLMPipeline.
 type Pipeline struct {
 	handle *C.ov_genai_llm_pipeline
@@ -115,7 +127,7 @@ func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 		// fall back to creating the pipeline without it.
 		if status != C.OK && runtime.GOOS == "darwin" {
 			slog.Warn("openvino: cached pipeline creation failed on macOS, retrying without cache",
-				"error", C.GoString(C.ov_get_error_info(status)))
+				"error", ovErrorDetail(status))
 			status = C.ov_llm_pipeline_create_no_props(cDir, cDev, &pipe)
 		}
 	} else {
@@ -123,7 +135,7 @@ func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 	}
 
 	if status != C.OK {
-		ovErr := C.GoString(C.ov_get_error_info(status))
+		ovErr := ovErrorDetail(status)
 		genaiRoot := os.Getenv("OPENVINO_GENAI_ROOT")
 		dyldPath := os.Getenv("DYLD_LIBRARY_PATH")
 		ldPath := os.Getenv("LD_LIBRARY_PATH")
@@ -218,7 +230,7 @@ func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn fu
 	// Build GenerationConfig via the official C API setters.
 	var genCfg *C.ov_genai_generation_config
 	if status := C.ov_genai_generation_config_create(&genCfg); status != C.OK {
-		return nil, fmt.Errorf("openvino: config creation failed: %s", C.GoString(C.ov_get_error_info(status)))
+		return nil, fmt.Errorf("openvino: config creation failed: %s", ovErrorDetail(status))
 	}
 	defer C.ov_genai_generation_config_free(genCfg)
 
@@ -262,7 +274,7 @@ func (p *Pipeline) Generate(ctx context.Context, cfg *GenerateConfig, tokenFn fu
 		if cb.cancelled {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("openvino: generation failed: %s", C.GoString(C.ov_get_error_info(status)))
+		return nil, fmt.Errorf("openvino: generation failed: %s", ovErrorDetail(status))
 	}
 	defer C.ov_genai_decoded_results_free(results)
 
