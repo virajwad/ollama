@@ -123,7 +123,42 @@ func NewPipeline(modelDir, device, cacheDir string) (*Pipeline, error) {
 	}
 
 	if status != C.OK {
-		return nil, fmt.Errorf("openvino: pipeline creation failed: %s", C.GoString(C.ov_get_error_info(status)))
+		ovErr := C.GoString(C.ov_get_error_info(status))
+		genaiRoot := os.Getenv("OPENVINO_GENAI_ROOT")
+		dyldPath := os.Getenv("DYLD_LIBRARY_PATH")
+		ldPath := os.Getenv("LD_LIBRARY_PATH")
+
+		arch := "intel64"
+		if runtime.GOOS == "darwin" {
+			arch = "arm64"
+		}
+		libDir := filepath.Join(genaiRoot, "runtime", "lib", arch, "Release")
+		tbbDir := filepath.Join(genaiRoot, "runtime", "3rdparty", "tbb", "lib")
+		libDirExists := "no"
+		if info, err := os.Stat(libDir); err == nil && info.IsDir() {
+			libDirExists = "yes"
+		}
+		tbbDirExists := "no"
+		if info, err := os.Stat(tbbDir); err == nil && info.IsDir() {
+			tbbDirExists = "yes"
+		}
+
+		return nil, fmt.Errorf("openvino: pipeline creation failed: %s\n"+
+			"  model_dir:          %s\n"+
+			"  device:             %s\n"+
+			"  cache_dir:          %s\n"+
+			"  GOOS/GOARCH:        %s/%s\n"+
+			"  OPENVINO_GENAI_ROOT: %s\n"+
+			"  lib_dir (%s):   %s\n"+
+			"  tbb_dir (%s):   %s\n"+
+			"  DYLD_LIBRARY_PATH:  %s\n"+
+			"  LD_LIBRARY_PATH:    %s",
+			ovErr, modelDir, device, cacheDir,
+			runtime.GOOS, runtime.GOARCH,
+			genaiRoot,
+			libDirExists, libDir,
+			tbbDirExists, tbbDir,
+			dyldPath, ldPath)
 	}
 
 	return &Pipeline{handle: pipe}, nil
