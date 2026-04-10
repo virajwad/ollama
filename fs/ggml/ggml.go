@@ -903,6 +903,7 @@ func (f GGML) FlashAttention() bool {
 		"qwen35", "qwen35moe",
 		"qwen3next",
 		"qwen3vl", "qwen3vlmoe",
+		"qwen25vl",
 	}, f.KV().String("general.architecture"))
 }
 

@@ -53,19 +53,30 @@ func (sa *VisionSelfAttention) Forward(ctx ml.Context, hiddenStates, positions, 
 	// Scale factor for scaled dot-product attention
 	scale := 1.0 / math.Sqrt(float64(opts.headDim))
 
-	// Scaled dot-product attention
-	query = query.Permute(ctx, 0, 2, 1, 3)
-	key = key.Permute(ctx, 0, 2, 1, 3)
-	value = value.Permute(ctx, 1, 2, 0, 3).Contiguous(ctx)
-
-	kq := key.MulmatFullPrec(ctx, query)
-	kq = kq.Scale(ctx, scale)
+	var attention ml.Tensor
 	if mask != nil {
-		kq = kq.Add(ctx, mask)
+		// Windowed attention layers: use ScaledDotProductAttention directly
+		// to pass the block diagonal mask through to Flash Attention
+		if sdpa, ok := query.(ml.ScaledDotProductAttention); ok {
+			attention = sdpa.ScaledDotProductAttention(ctx, key, value, mask, nil, nil, scale, false)
+		} else {
+			query = query.Permute(ctx, 0, 2, 1, 3)
+			key = key.Permute(ctx, 0, 2, 1, 3)
+			value = value.Permute(ctx, 1, 2, 0, 3).Contiguous(ctx)
+
+			kq := key.MulmatFullPrec(ctx, query)
+			kq = kq.Scale(ctx, scale)
+			kq = kq.Add(ctx, mask)
+			kq = kq.Softmax(ctx)
+			kqv := value.Mulmat(ctx, kq)
+			attention = kqv.Permute(ctx, 0, 2, 1, 3).Contiguous(ctx)
+		}
+	} else {
+		// Full attention layers: use nn.Attention which routes through
+		// ScaledDotProductAttention / Flash Attention when available
+		attention = nn.Attention(ctx, query, key, value, scale, nil)
 	}
-	kq = kq.Softmax(ctx)
-	kqv := value.Mulmat(ctx, kq)
-	attention := kqv.Permute(ctx, 0, 2, 1, 3).Contiguous(ctx)
+
 	attention = attention.Reshape(ctx, opts.hiddenSize, attention.Dim(2))
 
 	return sa.Output.Forward(ctx, attention)
