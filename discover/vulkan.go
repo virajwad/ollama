@@ -44,6 +44,7 @@ var errWindowsVulkanProbeUnsupported = errors.New("windows vulkan probe unsuppor
 type vulkanPhysicalDevice struct {
 	Name       string
 	DeviceID   string
+	VendorID   string
 	Integrated bool
 }
 
@@ -128,6 +129,9 @@ func applyWindowsVulkanRefinement(devices []ml.DeviceInfo, probed []vulkanPhysic
 		devices[vulkanIndexes[i]].Integrated = probed[probedIndex].Integrated
 		if devices[vulkanIndexes[i]].BackendDeviceID == "" {
 			devices[vulkanIndexes[i]].BackendDeviceID = probed[probedIndex].DeviceID
+		}
+		if devices[vulkanIndexes[i]].BackendVendorID == "" {
+			devices[vulkanIndexes[i]].BackendVendorID = probed[probedIndex].VendorID
 		}
 	}
 

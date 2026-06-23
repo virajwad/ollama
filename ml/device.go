@@ -299,6 +299,10 @@ type DeviceInfo struct {
 	// (for example, Vulkan physical deviceID like 0x64a0).
 	BackendDeviceID string `json:"device_id,omitempty"`
 
+	// BackendVendorID is the backend-native hardware vendor identifier
+	// (for example, Vulkan vendorID like 0x8086 for Intel).
+	BackendVendorID string `json:"vendor_id,omitempty"`
+
 	// TotalMemory is the total amount of memory the device can use for loading models
 	TotalMemory uint64 `json:"total_memory"`
 

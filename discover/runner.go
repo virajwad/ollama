@@ -33,7 +33,12 @@ var defaultIntegratedROCmGFXTargets = map[string]struct{}{
 	"gfx1151": {},
 }
 
-var defaultIntegratedVulkanGPUs = map[string]struct{}{}
+var defaultIntegratedVulkanGPUs = map[string]struct{}{
+	// Intel Arc 140V (Ultra Series 2)
+	"0x64a0": {},
+	// Intel Arc 130V (Ultra Series 2)
+	"0xb090": {},
+}
 
 func GPUDevices(ctx context.Context, runners []ml.FilteredRunnerDiscovery) []ml.DeviceInfo {
 	deviceMu.Lock()
@@ -468,15 +473,19 @@ func integratedGPUAllowedByDefault(device ml.DeviceInfo, hasDiscrete bool) bool 
 		_, ok := defaultIntegratedROCmGFXTargets[device.GFXTarget]
 		return ok
 	case "Vulkan":
-		combined := strings.ToLower(device.Name + " " + device.Description)
-		isIntel := strings.Contains(combined, "intel")
-		allowed := !hasDiscrete && isIntel
+		vendorID := strings.ToLower(strings.TrimSpace(device.BackendVendorID))
+		isIntelVendor := vendorID == "0x8086"
+		deviceID := strings.ToLower(strings.TrimSpace(device.BackendDeviceID))
+		_, allowlisted := defaultIntegratedVulkanGPUs[deviceID]
+		allowed := !hasDiscrete && isIntelVendor && allowlisted
 		slog.Debug("integratedGPUAllowedByDefault Vulkan check",
 			"id", device.ID,
 			"name", device.Name,
 			"description", device.Description,
-			"combined_lower", combined,
-			"is_intel", isIntel,
+			"vendor_id", vendorID,
+			"device_id", deviceID,
+			"is_intel_vendor", isIntelVendor,
+			"allowlisted", allowlisted,
 			"has_discrete", hasDiscrete,
 			"allowed", allowed)
 		return allowed

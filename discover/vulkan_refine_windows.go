@@ -98,12 +98,14 @@ func windowsVulkanPhysicalDevices(libDirs []string) ([]vulkanPhysicalDevice, err
 			physicalDevice,
 			uintptr(unsafe.Pointer(&properties[0])),
 		)
+		vendorID := *(*uint32)(unsafe.Pointer(&properties[8]))
 		deviceID := *(*uint32)(unsafe.Pointer(&properties[12]))
 		deviceType := *(*uint32)(unsafe.Pointer(&properties[16]))
 		deviceNameBytes := properties[20 : 20+vkMaxPhysicalDeviceNameSize]
 		devices = append(devices, vulkanPhysicalDevice{
 			Name:       nulTerminatedString(deviceNameBytes),
 			DeviceID:   fmt.Sprintf("0x%04x", deviceID),
+			VendorID:   fmt.Sprintf("0x%04x", vendorID),
 			Integrated: deviceType == vkPhysicalDeviceTypeIntegratedGPU,
 		})
 	}
