@@ -376,19 +376,58 @@ func filterIntegratedGPUs(devices []ml.DeviceInfo) []ml.DeviceInfo {
 	}
 
 	allow, explicit := integratedGPUAdmission()
+
+	hasDiscrete := false
+	for _, device := range devices {
+		if !device.Integrated {
+			hasDiscrete = true
+			break
+		}
+	}
+
+	slog.Debug("filterIntegratedGPUs entry: ",
+		"device_count", len(devices),
+		"has_discrete", hasDiscrete,
+		"igpu_allow", allow,
+		"igpu_explicit", explicit)
+
+	for i, device := range devices {
+		slog.Debug("filterIntegratedGPUs device: ",
+			"index", i,
+			"id", device.ID,
+			"library", device.Library,
+			"name", device.Name,
+			"description", device.Description,
+			"integrated", device.Integrated,
+			"pci_id", device.PCIID)
+	}
+
 	filtered := devices[:0]
 	for _, device := range devices {
 		if !device.Integrated {
+			slog.Debug("filterIntegratedGPUs keeping discrete GPU",
+				"id", device.ID,
+				"library", device.Library,
+				"name", device.Name)
 			filtered = append(filtered, device)
 			continue
 		}
 
 		if explicit {
 			if allow {
+				slog.Debug("filterIntegratedGPUs keeping integrated GPU (explicit allow)",
+					"id", device.ID,
+					"library", device.Library,
+					"name", device.Name)
 				filtered = append(filtered, device)
 				continue
 			}
-		} else if integratedGPUAllowedByDefault(device) {
+		} else if integratedGPUAllowedByDefault(device, hasDiscrete) {
+			slog.Debug("filterIntegratedGPUs keeping integrated GPU (allowed by default)",
+				"id", device.ID,
+				"library", device.Library,
+				"name", device.Name,
+				"has_discrete", hasDiscrete)
 			filtered = append(filtered, device)
 			continue
 		}
@@ -402,6 +441,10 @@ func filterIntegratedGPUs(devices []ml.DeviceInfo) []ml.DeviceInfo {
 			"pci_id", device.PCIID)
 	}
 
+	slog.Debug("filterIntegratedGPUs result",
+		"input_count", len(devices),
+		"output_count", len(filtered))
+
 	return filtered
 }
 
@@ -414,13 +457,26 @@ func integratedGPUAdmission() (allow, explicit bool) {
 	return false, false
 }
 
-func integratedGPUAllowedByDefault(device ml.DeviceInfo) bool {
+func integratedGPUAllowedByDefault(device ml.DeviceInfo, hasDiscrete bool) bool {
 	switch device.Library {
 	case "CUDA":
 		return true
 	case "ROCm":
 		_, ok := defaultIntegratedROCmGFXTargets[device.GFXTarget]
 		return ok
+	case "Vulkan":
+		combined := strings.ToLower(device.Name + " " + device.Description)
+		isIntel := strings.Contains(combined, "intel")
+		allowed := !hasDiscrete && isIntel
+		slog.Debug("integratedGPUAllowedByDefault Vulkan check",
+			"id", device.ID,
+			"name", device.Name,
+			"description", device.Description,
+			"combined_lower", combined,
+			"is_intel", isIntel,
+			"has_discrete", hasDiscrete,
+			"allowed", allowed)
+		return allowed
 	default:
 		return false
 	}

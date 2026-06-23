@@ -187,6 +187,25 @@ func TestFilterIntegratedGPUs(t *testing.T) {
 		want := []ml.DeviceID{{Library: "Vulkan", ID: "1"}}
 		assertDeviceIDs(t, got, want)
 	})
+
+	t.Run("Intel iGPU allowed when no discrete GPU present", func(t *testing.T) {
+		integratedOnly := []ml.DeviceInfo{
+			{DeviceID: ml.DeviceID{Library: "Vulkan", ID: "0"}, Name: "Intel(R) Graphics", Description: "Intel(R) UHD Graphics 770", Integrated: true},
+		}
+		got := filterIntegratedGPUs(integratedOnly)
+		want := []ml.DeviceID{{Library: "Vulkan", ID: "0"}}
+		assertDeviceIDs(t, got, want)
+	})
+
+	t.Run("Intel iGPU dropped when discrete GPU present", func(t *testing.T) {
+		withDiscrete := []ml.DeviceInfo{
+			{DeviceID: ml.DeviceID{Library: "Vulkan", ID: "0"}, Name: "Intel(R) Graphics", Description: "Intel(R) UHD Graphics 770", Integrated: true},
+			{DeviceID: ml.DeviceID{Library: "Vulkan", ID: "1"}, Name: "NVIDIA GeForce RTX 4090", Description: "NVIDIA GeForce RTX 4090"},
+		}
+		got := filterIntegratedGPUs(withDiscrete)
+		want := []ml.DeviceID{{Library: "Vulkan", ID: "1"}}
+		assertDeviceIDs(t, got, want)
+	})
 }
 
 func assertDeviceIDs(t *testing.T, got []ml.DeviceInfo, want []ml.DeviceID) {
