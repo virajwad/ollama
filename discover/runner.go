@@ -33,6 +33,8 @@ var defaultIntegratedROCmGFXTargets = map[string]struct{}{
 	"gfx1151": {},
 }
 
+var defaultIntegratedVulkanGPUs = map[string]struct{}{}
+
 func GPUDevices(ctx context.Context, runners []ml.FilteredRunnerDiscovery) []ml.DeviceInfo {
 	deviceMu.Lock()
 	defer deviceMu.Unlock()
@@ -395,6 +397,7 @@ func filterIntegratedGPUs(devices []ml.DeviceInfo) []ml.DeviceInfo {
 		slog.Debug("filterIntegratedGPUs device: ",
 			"index", i,
 			"id", device.ID,
+			"device_id", device.BackendDeviceID,
 			"library", device.Library,
 			"name", device.Name,
 			"description", device.Description,

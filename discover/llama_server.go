@@ -331,7 +331,11 @@ func parseLlamaServerDevicesWithNative(output string, libDirs []string, nativeDe
 		}
 		if hasNativeDevice {
 			if nativeDevice.DeviceID != "" {
-				dev.PCIID = nativeDevice.DeviceID
+				nativeID := strings.ToLower(nativeDevice.DeviceID)
+				dev.BackendDeviceID = nativeID
+				if pciIDRegex.MatchString(nativeID) {
+					dev.PCIID = nativeID
+				}
 			}
 			if nativeDevice.IntegratedKnown {
 				dev.Integrated = nativeDevice.Integrated
